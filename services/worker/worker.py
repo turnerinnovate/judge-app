@@ -1,3 +1,6 @@
+"""Async worker primitives for training-only analysis and coaching workflows."""
+from dataclasses import dataclass, field
+from datetime import datetime
 """Async worker primitives for analysis + training coaching + tournament judging orchestration."""
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -44,6 +47,14 @@ def process_job(job: Job) -> Job:
     if job.type in {"ANALYZE_REFERENCE_VIDEO", "ANALYZE_STUDENT_SUBMISSION"}:
         return _process_analysis_job(job)
 
+    if job.type == "RECALCULATE_PROGRESS_METRICS":
+        return _process_progress_job(job)
+
+    if job.type == "RENDER_VISUALIZATION":
+        job.status = "COMPLETED"
+        job.result = {"status": "COMPLETED", "artifactType": "KEYFRAME_SNAPSHOTS", "count": int(job.payload.get("snapshotCount", 4))}
+        _event(job, "COMPLETED", job.result)
+        return job
     if job.type == "SCORE_TOURNAMENT_PERFORMANCE":
         return _process_tournament_scoring(job)
 
@@ -56,6 +67,16 @@ def process_job(job: Job) -> Job:
 def _process_analysis_job(job: Job) -> Job:
     quality = float(job.payload.get("quality", 0.75))
     confidence = float(job.payload.get("confidence", 0.7))
+
+    if quality < 0.45 or confidence < 0.5:
+        job.status = "FAILED"
+        job.result = {
+            "reason": "Low analysis confidence or poor video quality.",
+            "recommendedAction": "Re-record with full body visible, stable camera, and improved lighting.",
+            "confidence": confidence,
+            "quality": quality,
+        }
+        _event(job, "FAILED", job.result)
     product_mode = str(job.payload.get("productMode", "TRAINING_MODE"))
 
     if quality < 0.45 or confidence < 0.5:
@@ -73,6 +94,7 @@ def _process_analysis_job(job: Job) -> Job:
         "analysisStatus": "COMPLETED",
         "confidence": confidence,
         "quality": quality,
+        "coachingEligible": True,
         "productMode": product_mode,
         "coachingEligible": product_mode == "TRAINING_MODE",
     }
@@ -80,6 +102,19 @@ def _process_analysis_job(job: Job) -> Job:
     return job
 
 
+def _process_progress_job(job: Job) -> Job:
+    latest = float(job.payload.get("latestScore", 0))
+    previous = float(job.payload.get("previousScore", 0))
+    delta = round(latest - previous, 3)
+    trend = "IMPROVING" if delta > 0.25 else "DECLINING" if delta < -0.25 else "STABLE"
+
+    job.status = "COMPLETED"
+    job.result = {
+        "trend": trend,
+        "delta": delta,
+        "latestScore": latest,
+        "previousScore": previous,
+        "recommendation": "Prioritize stance and transition drills." if delta <= 0 else "Maintain progress with consistency rounds.",
 def _process_tournament_scoring(job: Job) -> Job:
     ai_score = float(job.payload.get("aiScore", 0.0))
     human_scores = [float(v) for v in job.payload.get("humanScores", [])]
@@ -132,6 +167,9 @@ if __name__ == "__main__":
     demo = Job(
         id="demo-1",
         organization_id="org-demo",
+        type="RECALCULATE_PROGRESS_METRICS",
+        status="QUEUED",
+        payload={"latestScore": 7.6, "previousScore": 7.1},
         type="SCORE_TOURNAMENT_PERFORMANCE",
         status="QUEUED",
         payload={"aiScore": 8.1, "humanScores": [8.0, 8.3, 7.9], "confidence": 0.81},
