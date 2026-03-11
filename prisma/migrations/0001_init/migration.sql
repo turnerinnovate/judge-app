@@ -1,0 +1,1 @@
+-- Placeholder migration. Run `prisma migrate dev` to generate provider-specific SQL from schema.
