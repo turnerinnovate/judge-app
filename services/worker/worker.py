@@ -1,6 +1,10 @@
 """Async worker primitives for training-only analysis and coaching workflows."""
 from dataclasses import dataclass, field
 from datetime import datetime
+"""Async worker primitives for analysis + training coaching + tournament judging orchestration."""
+from dataclasses import dataclass, field
+from datetime import datetime
+from statistics import median
 from typing import Any, Dict, List
 
 
@@ -19,6 +23,7 @@ class Job:
 ALLOWED_TYPES = {
     "ANALYZE_REFERENCE_VIDEO",
     "ANALYZE_STUDENT_SUBMISSION",
+    "SCORE_TOURNAMENT_PERFORMANCE",
     "RECALCULATE_PROGRESS_METRICS",
     "RENDER_VISUALIZATION",
 }
@@ -50,6 +55,8 @@ def process_job(job: Job) -> Job:
         job.result = {"status": "COMPLETED", "artifactType": "KEYFRAME_SNAPSHOTS", "count": int(job.payload.get("snapshotCount", 4))}
         _event(job, "COMPLETED", job.result)
         return job
+    if job.type == "SCORE_TOURNAMENT_PERFORMANCE":
+        return _process_tournament_scoring(job)
 
     job.status = "COMPLETED"
     job.result = {"status": "NOOP_COMPLETE"}
@@ -70,6 +77,16 @@ def _process_analysis_job(job: Job) -> Job:
             "quality": quality,
         }
         _event(job, "FAILED", job.result)
+    product_mode = str(job.payload.get("productMode", "TRAINING_MODE"))
+
+    if quality < 0.45 or confidence < 0.5:
+        job.status = "NEEDS_HUMAN_REVIEW"
+        job.result = {
+            "reason": "Low analysis confidence or poor video quality.",
+            "recommendedAction": "Re-record video or manual instructor review.",
+            "productMode": product_mode,
+        }
+        _event(job, "NEEDS_HUMAN_REVIEW", job.result)
         return job
 
     job.status = "COMPLETED"
@@ -78,6 +95,8 @@ def _process_analysis_job(job: Job) -> Job:
         "confidence": confidence,
         "quality": quality,
         "coachingEligible": True,
+        "productMode": product_mode,
+        "coachingEligible": product_mode == "TRAINING_MODE",
     }
     _event(job, "COMPLETED", job.result)
     return job
@@ -96,9 +115,52 @@ def _process_progress_job(job: Job) -> Job:
         "latestScore": latest,
         "previousScore": previous,
         "recommendation": "Prioritize stance and transition drills." if delta <= 0 else "Maintain progress with consistency rounds.",
+def _process_tournament_scoring(job: Job) -> Job:
+    ai_score = float(job.payload.get("aiScore", 0.0))
+    human_scores = [float(v) for v in job.payload.get("humanScores", [])]
+    overall_confidence = float(job.payload.get("confidence", 0.75))
+
+    if overall_confidence < 0.6 and not human_scores:
+        job.status = "NEEDS_HUMAN_REVIEW"
+        job.result = {
+            "reason": "Tournament confidence below threshold without human panel scores.",
+            "recommendedAction": "Collect human panel scores before finalization.",
+            "provenance": {
+                "aiScore": ai_score,
+                "confidence": overall_confidence,
+                "computedAt": datetime.utcnow().isoformat(),
+            },
+        }
+        _event(job, "NEEDS_HUMAN_REVIEW", job.result)
+        return job
+
+    official = sum(human_scores) / len(human_scores) if human_scores else ai_score
+    panel_median = median(human_scores) if human_scores else ai_score
+
+    job.status = "COMPLETED"
+    job.result = {
+        "officialScore": round(official, 3),
+        "recommendationScore": round(ai_score, 3),
+        "officialSource": "HUMAN_PANEL_AVERAGE" if human_scores else "AI_IF_CONFIGURED",
+        "confidenceExplanation": _confidence_explanation(overall_confidence),
+        "provenance": {
+            "aiScore": ai_score,
+            "humanScores": human_scores,
+            "panelMedian": round(panel_median, 3),
+            "varianceFromAI": round(abs(official - ai_score), 3),
+            "computedAt": datetime.utcnow().isoformat(),
+        },
     }
     _event(job, "COMPLETED", job.result)
     return job
+
+
+def _confidence_explanation(confidence: float) -> List[str]:
+    if confidence < 0.6:
+        return ["Low confidence tournament recommendation.", "Human judge review required before official recording."]
+    if confidence < 0.75:
+        return ["Moderate confidence recommendation.", "Panel confirmation strongly advised."]
+    return ["High confidence recommendation.", "Still advisory: official outcomes remain reviewable."]
 
 
 if __name__ == "__main__":
@@ -108,5 +170,8 @@ if __name__ == "__main__":
         type="RECALCULATE_PROGRESS_METRICS",
         status="QUEUED",
         payload={"latestScore": 7.6, "previousScore": 7.1},
+        type="SCORE_TOURNAMENT_PERFORMANCE",
+        status="QUEUED",
+        payload={"aiScore": 8.1, "humanScores": [8.0, 8.3, 7.9], "confidence": 0.81},
     )
     print(process_job(demo))

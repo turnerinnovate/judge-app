@@ -69,6 +69,7 @@ export async function POST(req: Request) {
       segmentation: 0.77,
       weapon: 0.72,
       explanation: ['Confidence supports coaching recommendations; low confidence should trigger re-record guidance.'],
+      explanation: ['Confidence supports coaching recommendations; not used for official tournament finalization.'],
     },
   });
 }
