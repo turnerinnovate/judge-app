@@ -1,0 +1,126 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  SUPER_ADMIN
+  ORGANIZATION_OWNER
+  TOURNAMENT_ADMIN
+  INSTRUCTOR
+  JUDGE
+  STUDENT
+  PARENT
+}
+
+enum EventType {
+  TRADITIONAL_FORM
+  TRADITIONAL_WEAPON
+  CREATIVE_FORM
+  CREATIVE_WEAPON
+  XTREME_FORM
+  XTREME_WEAPON
+  SPARRING_DRILL
+  COMBAT_WEAPON_DRILL
+  TOURNAMENT_TRADITIONAL_FORM
+  TOURNAMENT_TRADITIONAL_WEAPON
+  TOURNAMENT_CREATIVE_FORM
+  TOURNAMENT_CREATIVE_WEAPON
+  TOURNAMENT_XTREME_FORM
+  TOURNAMENT_XTREME_WEAPON
+  TOURNAMENT_SPARRING
+  TOURNAMENT_COMBAT_WEAPON_SPARRING
+}
+
+enum JobStatus { QUEUED PROCESSING COMPLETED FAILED NEEDS_HUMAN_REVIEW }
+enum JobType {
+  ANALYZE_REFERENCE_VIDEO
+  ANALYZE_STUDENT_SUBMISSION
+  SCORE_TOURNAMENT_PERFORMANCE
+  RENDER_VISUALIZATION
+  RECALCULATE_PROGRESS_METRICS
+}
+
+model Organization {
+  id String @id @default(cuid())
+  name String
+  users User[]
+  athletes AthleteProfile[]
+  tournaments Tournament[]
+  rulesets RuleSet[]
+  createdAt DateTime @default(now())
+}
+
+model User {
+  id String @id @default(cuid())
+  email String @unique
+  name String
+  role UserRole
+  organizationId String?
+  organization Organization? @relation(fields: [organizationId], references: [id])
+  parentLinks ParentChildLink[] @relation("Parent")
+  childLinks ParentChildLink[] @relation("Child")
+  createdAt DateTime @default(now())
+}
+
+model ParentChildLink {
+  id String @id @default(cuid())
+  parentId String
+  childId String
+  parent User @relation("Parent", fields: [parentId], references: [id])
+  child User @relation("Child", fields: [childId], references: [id])
+}
+
+model AthleteProfile {
+  id String @id @default(cuid())
+  organizationId String
+  userId String?
+  displayName String
+  rank String?
+  weaponStyle String?
+  organization Organization @relation(fields: [organizationId], references: [id])
+  submissions StudentSubmission[]
+  progress SkillProgressRecord[]
+}
+
+model FormTemplate { id String @id @default(cuid()) name String eventType EventType phases TechniquePhase[] }
+model TechniquePhase { id String @id @default(cuid()) formTemplateId String label String order Int formTemplate FormTemplate @relation(fields:[formTemplateId], references:[id]) }
+model ReferencePerformance { id String @id @default(cuid()) formTemplateId String videoUrl String phaseMetrics ReferencePhaseMetric[] }
+model ReferencePhaseMetric { id String @id @default(cuid()) referencePerformanceId String phaseLabel String metrics Json referencePerformance ReferencePerformance @relation(fields:[referencePerformanceId], references:[id]) }
+model PhaseAnnotation { id String @id @default(cuid()) submissionId String phaseLabel String startMs Int endMs Int metrics Json }
+model CheckpointAnnotation { id String @id @default(cuid()) phaseAnnotationId String checkpointLabel String timestampMs Int expected Json actual Json }
+model StudentSubmission { id String @id @default(cuid()) athleteId String formTemplateId String videoUrl String scores SubmissionScore[] feedback SubmissionFeedback[] athlete AthleteProfile @relation(fields:[athleteId], references:[id]) }
+model SubmissionScore { id String @id @default(cuid()) submissionId String overall Float categoryBreakdown Json confidence Float submission StudentSubmission @relation(fields:[submissionId], references:[id]) }
+model SubmissionFeedback { id String @id @default(cuid()) submissionId String summary String strengths Json weaknesses Json recommendations Json submission StudentSubmission @relation(fields:[submissionId], references:[id]) }
+model FeedbackEvent { id String @id @default(cuid()) submissionId String actorId String eventType String payload Json createdAt DateTime @default(now()) }
+model TechniqueRule { id String @id @default(cuid()) name String metrics Json thresholds Json scoreEffects Json feedbackTemplates Json severityLogic Json confidenceLogic Json }
+model TechniqueScore { id String @id @default(cuid()) submissionId String phaseLabel String ruleName String score Float rationale String }
+model ConfidenceAssessment { id String @id @default(cuid()) targetType String targetId String pose Float segmentation Float weapon Float overall Float rationale Json }
+model VideoQualityAssessment { id String @id @default(cuid()) submissionId String visibility Float stability Float blur Float lighting Float overall Float }
+model InstructorReview { id String @id @default(cuid()) submissionId String instructorId String approved Boolean notes String? corrections InstructorCorrection[] }
+model InstructorCorrection { id String @id @default(cuid()) reviewId String field String previousValue String newValue String review InstructorReview @relation(fields:[reviewId], references:[id]) }
+model Tournament { id String @id @default(cuid()) organizationId String name String startsAt DateTime divisions TournamentDivision[] organization Organization @relation(fields:[organizationId], references:[id]) }
+model TournamentDivision { id String @id @default(cuid()) tournamentId String name String eventType EventType competitors TournamentCompetitor[] rounds TournamentRound[] tournament Tournament @relation(fields:[tournamentId], references:[id]) }
+model TournamentCompetitor { id String @id @default(cuid()) divisionId String athleteId String orderIndex Int division TournamentDivision @relation(fields:[divisionId], references:[id]) }
+model TournamentRound { id String @id @default(cuid()) divisionId String name String performances TournamentPerformance[] division TournamentDivision @relation(fields:[divisionId], references:[id]) }
+model TournamentPerformance { id String @id @default(cuid()) roundId String competitorId String videoUrl String humanScores HumanJudgeScore[] aiScores AIJudgeScore[] judgeReviews JudgeReview[] }
+model JudgePanel { id String @id @default(cuid()) divisionId String assignments JudgeAssignment[] }
+model JudgeAssignment { id String @id @default(cuid()) judgePanelId String judgeId String mode String }
+model HumanJudgeScore { id String @id @default(cuid()) performanceId String judgeId String score Float categories Json deductions Json rationale String performance TournamentPerformance @relation(fields:[performanceId], references:[id]) }
+model AIJudgeScore { id String @id @default(cuid()) performanceId String mode String score Float confidence Float categories Json deductions Json ruleReferences Json rationale String performance TournamentPerformance @relation(fields:[performanceId], references:[id]) }
+model JudgeReview { id String @id @default(cuid()) performanceId String reviewerId String aiScoreId String? decision String rationale String }
+model PlacementResult { id String @id @default(cuid()) divisionId String competitorId String placement Int finalScore Float tieBreakMeta Json }
+model RuleSet { id String @id @default(cuid()) organizationId String governingBody String seasonLabel String eventType EventType version String config Json ruleReferences RuleReference[] rubrics ScoringRubric[] organization Organization @relation(fields:[organizationId], references:[id]) }
+model RuleReference { id String @id @default(cuid()) ruleSetId String code String description String ruleSet RuleSet @relation(fields:[ruleSetId], references:[id]) }
+model ScoringRubric { id String @id @default(cuid()) ruleSetId String name String categories RubricCategory[] deductionRules DeductionRule[] ruleSet RuleSet @relation(fields:[ruleSetId], references:[id]) }
+model RubricCategory { id String @id @default(cuid()) rubricId String name String minScore Float maxScore Float weight Float description String rubric ScoringRubric @relation(fields:[rubricId], references:[id]) }
+model DeductionRule { id String @id @default(cuid()) rubricId String code String points Float description String rubric ScoringRubric @relation(fields:[rubricId], references:[id]) }
+model AnalysisJob { id String @id @default(cuid()) organizationId String type JobType status JobStatus payload Json result Json? error String? }
+model AuditLog { id String @id @default(cuid()) organizationId String actorId String action String targetType String targetId String data Json createdAt DateTime @default(now()) }
+model ScoreProvenance { id String @id @default(cuid()) targetType String targetId String ruleSetId String rubricId String confidence Float components Json createdAt DateTime @default(now()) }
+model LeaderboardSnapshot { id String @id @default(cuid()) tournamentId String divisionId String snapshot Json createdAt DateTime @default(now()) }
+model SkillProgressRecord { id String @id @default(cuid()) athleteId String dimension String score Float measuredAt DateTime @default(now()) athlete AthleteProfile @relation(fields:[athleteId], references:[id]) }

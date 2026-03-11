@@ -1,0 +1,15 @@
+{
+  "name": "innovate-ai-judge",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": [
+    "apps/*",
+    "packages/*",
+    "services/*"
+  ],
+  "scripts": {
+    "test": "python -m pytest services/analysis/tests",
+    "lint": "echo 'lint placeholder'",
+    "build": "echo 'build each workspace'"
+  }
+}
