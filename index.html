@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>INNOVATE AI COACH - Standalone</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 0; background: #f7f7fb; color: #1f2937; }
+    .wrap { max-width: 1000px; margin: 0 auto; padding: 24px; }
+    .card { background: white; border: 1px solid #e5e7eb; border-radius: 10px; padding: 16px; margin-top: 16px; }
+    .grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 12px; }
+    label { font-size: 13px; color: #4b5563; display: block; margin-bottom: 4px; }
+    input { width: 100%; padding: 8px; border: 1px solid #d1d5db; border-radius: 8px; }
+    button { margin-top: 12px; background: #2563eb; color: white; border: 0; border-radius: 8px; padding: 10px 12px; cursor: pointer; }
+    pre { white-space: pre-wrap; background: #111827; color: #e5e7eb; border-radius: 8px; padding: 12px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>INNOVATE AI COACH</h1>
+    <p>Standalone training demo via <code>index.html</code> (model-vs-student coaching only).</p>
+
+    <div class="card">
+      <h2>Training Analysis</h2>
+      <div class="grid">
+        <div><label>Stances</label><input id="m-stance" type="number" min="0" max="10" step="0.1" value="6.5"></div>
+        <div><label>Hand Techniques</label><input id="m-hand" type="number" min="0" max="10" step="0.1" value="7.0"></div>
+        <div><label>Kicks</label><input id="m-kick" type="number" min="0" max="10" step="0.1" value="6.2"></div>
+        <div><label>Balance</label><input id="m-balance" type="number" min="0" max="10" step="0.1" value="6.9"></div>
+        <div><label>Timing</label><input id="m-timing" type="number" min="0" max="10" step="0.1" value="6.8"></div>
+        <div><label>Accuracy</label><input id="m-accuracy" type="number" min="0" max="10" step="0.1" value="6.4"></div>
+      </div>
+      <button id="run">Generate Coaching Feedback</button>
+      <pre id="out">{}</pre>
+    </div>
+  </div>
+
+  <script>
+    const clamp = (v, min, max) => Math.max(min, Math.min(max, Number(v)));
+    const round = (v) => Math.round(v * 1000) / 1000;
+
+    const weights = [
+      ['Stances', 0.25, 'm-stance'],
+      ['Hand Techniques', 0.2, 'm-hand'],
+      ['Kicks', 0.2, 'm-kick'],
+      ['Balance', 0.15, 'm-balance'],
+      ['Timing', 0.1, 'm-timing'],
+      ['Accuracy', 0.1, 'm-accuracy'],
+    ];
+
+    document.getElementById('run').addEventListener('click', () => {
+      const categories = weights.map(([name, weight, id]) => {
+        const raw = clamp(document.getElementById(id).value, 0, 10);
+        return { name, raw: round(raw), weight, weighted: round(raw * weight) };
+      });
+
+      const overall = round(categories.reduce((a, c) => a + c.weighted, 0));
+      const response = {
+        productMode: 'TRAINING_ONLY',
+        overall,
+        categories,
+        feedbackTimeline: [
+          { phase: 'Phase 2', timestampSec: 4.2, note: 'Front stance too narrow before block.', confidence: 0.81 },
+          { phase: 'Phase 4', timestampSec: 9.1, note: 'Kick re-chamber is incomplete on landing.', confidence: 0.76 }
+        ],
+        drills: [
+          'Front stance width ladder drill x 3 rounds',
+          'Kick chamber hold with metronome x 2 minutes'
+        ],
+        confidence: {
+          overall: 0.79,
+          warning: 'If performer leaves frame, feedback quality may drop.'
+        }
+      };
+
+      document.getElementById('out').textContent = JSON.stringify(response, null, 2);
+    });
+  </script>
+</body>
+</html>
