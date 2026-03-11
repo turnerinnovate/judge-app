@@ -46,6 +46,10 @@ npx prisma db seed
 cd apps/web && npm run dev
 ```
 
+### Quick standalone run (no build)
+Open `index.html` directly in a browser to run a static demo of Training Mode and Tournament Mode judge recommendation flows.
+
+
 ### Run analysis service
 ```bash
 cd services/analysis && uvicorn app.main:app --reload --port 8001

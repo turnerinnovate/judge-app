@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>INNOVATE AI JUDGE - Standalone</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 0; background: #f7f7fb; color: #1f2937; }
+    .wrap { max-width: 1000px; margin: 0 auto; padding: 24px; }
+    .card { background: white; border: 1px solid #e5e7eb; border-radius: 10px; padding: 16px; margin-top: 16px; }
+    .grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 12px; }
+    label { font-size: 13px; color: #4b5563; display: block; margin-bottom: 4px; }
+    input { width: 100%; padding: 8px; border: 1px solid #d1d5db; border-radius: 8px; }
+    button { margin-top: 12px; background: #2563eb; color: white; border: 0; border-radius: 8px; padding: 10px 12px; cursor: pointer; }
+    pre { white-space: pre-wrap; background: #111827; color: #e5e7eb; border-radius: 8px; padding: 12px; }
+    .muted { color: #6b7280; font-size: 14px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>INNOVATE AI JUDGE</h1>
+    <p class="muted">Standalone mode via <code>index.html</code>. Open this file directly in a browser (no build required).</p>
+
+    <div class="card">
+      <h2>Training Mode (AI Coach)</h2>
+      <div class="grid">
+        <div><label>Stances</label><input id="tr-stance" type="number" min="0" max="10" step="0.1" value="6.2"></div>
+        <div><label>Hand Techniques</label><input id="tr-hand" type="number" min="0" max="10" step="0.1" value="6.8"></div>
+        <div><label>Kicks</label><input id="tr-kicks" type="number" min="0" max="10" step="0.1" value="6.0"></div>
+        <div><label>Timing</label><input id="tr-timing" type="number" min="0" max="10" step="0.1" value="6.6"></div>
+        <div><label>Balance</label><input id="tr-balance" type="number" min="0" max="10" step="0.1" value="6.9"></div>
+        <div><label>Accuracy</label><input id="tr-accuracy" type="number" min="0" max="10" step="0.1" value="6.3"></div>
+      </div>
+      <button id="run-training">Generate Coaching Feedback</button>
+      <pre id="training-output">{}</pre>
+    </div>
+
+    <div class="card">
+      <h2>Tournament Mode (AI Shadow Judge)</h2>
+      <div class="grid">
+        <div><label>Accuracy (0-10)</label><input id="tj-accuracy" type="number" min="0" max="10" step="0.1" value="8.1"></div>
+        <div><label>Presentation (0-10)</label><input id="tj-presentation" type="number" min="0" max="10" step="0.1" value="7.8"></div>
+        <div><label>Rule Compliance (0-10)</label><input id="tj-rule" type="number" min="0" max="10" step="0.1" value="8.4"></div>
+        <div><label>Overall Confidence (0-1)</label><input id="tj-confidence" type="number" min="0" max="1" step="0.01" value="0.72"></div>
+      </div>
+      <button id="run-judge">Generate Judge Recommendation</button>
+      <pre id="judge-output">{}</pre>
+    </div>
+  </div>
+
+  <script>
+    const clamp = (v, min, max) => Math.max(min, Math.min(max, Number(v)));
+    const round = (v) => Math.round(v * 1000) / 1000;
+
+    function scoreCategory(name, raw, weight) {
+      const bounded = clamp(raw, 0, 10);
+      return { name, raw: round(bounded), weight, weighted: round(bounded * weight) };
+    }
+
+    document.getElementById('run-training').addEventListener('click', () => {
+      const categories = [
+        scoreCategory('Stances', document.getElementById('tr-stance').value, 0.22),
+        scoreCategory('Hand Techniques', document.getElementById('tr-hand').value, 0.18),
+        scoreCategory('Kicks', document.getElementById('tr-kicks').value, 0.15),
+        scoreCategory('Timing', document.getElementById('tr-timing').value, 0.15),
+        scoreCategory('Balance', document.getElementById('tr-balance').value, 0.15),
+        scoreCategory('Accuracy', document.getElementById('tr-accuracy').value, 0.15),
+      ];
+
+      const overall = round(categories.reduce((acc, c) => acc + c.weighted, 0));
+      const payload = {
+        productMode: 'TRAINING_MODE',
+        coachingTone: 'AI_COACH',
+        overall,
+        categories,
+        practicePriorities: [
+          'Front stance width ladder drill (3 sets x 10 reps).',
+          'Kick chamber hold + extension sequence (5 x 20 seconds each leg).'
+        ],
+        confidence: {
+          overall: 0.8,
+          explanation: ['Coaching confidence only; this is not an official tournament result.']
+        }
+      };
+
+      document.getElementById('training-output').textContent = JSON.stringify(payload, null, 2);
+    });
+
+    document.getElementById('run-judge').addEventListener('click', () => {
+      const rubric = [
+        { name: 'Accuracy', weight: 0.4 },
+        { name: 'Presentation', weight: 0.3 },
+        { name: 'Rule Compliance', weight: 0.3 }
+      ];
+
+      const metrics = {
+        Accuracy: clamp(document.getElementById('tj-accuracy').value, 0, 10),
+        Presentation: clamp(document.getElementById('tj-presentation').value, 0, 10),
+        'Rule Compliance': clamp(document.getElementById('tj-rule').value, 0, 10)
+      };
+
+      const weighted = rubric.map((r) => ({
+        name: r.name,
+        raw: round(metrics[r.name]),
+        normalized: round(metrics[r.name] / 10),
+        weight: r.weight,
+        weightedNormalized: round((metrics[r.name] / 10) * r.weight)
+      }));
+
+      const score10 = round((weighted.reduce((acc, c) => acc + c.weightedNormalized, 0) / 1) * 10);
+      const confidence = clamp(document.getElementById('tj-confidence').value, 0, 1);
+      const requiresHumanReview = confidence < 0.65;
+
+      const payload = {
+        productMode: 'TOURNAMENT_MODE',
+        mode: 'AI_SHADOW_JUDGE',
+        total: score10,
+        categoryScores: weighted,
+        confidence,
+        recommendation: requiresHumanReview ? 'REQUIRE_HUMAN_REVIEW' : 'ALLOW_ASSIST_RECOMMENDATION',
+        confidenceExplanation: [
+          `Overall confidence ${(confidence * 100).toFixed(1)}%`,
+          requiresHumanReview
+            ? 'Below tournament threshold; human judge confirmation required.'
+            : 'Confidence passes assist threshold; still advisory only.'
+        ],
+        provenance: { modeBoundary: 'AI_ASSIST_NOT_OFFICIAL_RESULT', generatedAt: new Date().toISOString() }
+      };
+
+      document.getElementById('judge-output').textContent = JSON.stringify(payload, null, 2);
+    });
+  </script>
+</body>
+</html>
